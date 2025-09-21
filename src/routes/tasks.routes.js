@@ -8,9 +8,9 @@ router.get("/my-tasks", authMiddleware, taskController.getUserTasks);
 router.get("/:id", authMiddleware, taskController.getTask);
 router.put("/:id", authMiddleware, taskController.updateTask);
 router.delete("/:id", authMiddleware, taskController.deleteTask);
+router.patch("/:id/status", authMiddleware, taskController.updateTaskStatus);
 
 router.post("/:id/assign", authMiddleware, taskController.assignTask);
-router.patch("/:id/status", authMiddleware, taskController.updateTaskStatus);
 
 router.get("/projects/:projectId", authMiddleware, taskController.getProjectTasks);
 

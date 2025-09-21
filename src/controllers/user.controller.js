@@ -50,7 +50,7 @@ const userController = {
 
       const dropdownList = users.map((user) => ({
         label: `${user?.firstName} ${user?.lastName} - (${user?.email})`,
-        value: user.id,
+        value: String(user.id),
       }))
       return responseHelper.successResponse(
         res,

@@ -1,5 +1,7 @@
 import { DataTypes } from "sequelize";
 import { sequelize } from "../config/database.js";
+import { User } from "./User.model.js";
+import { Project } from "./Project.model.js";
 
 const Task = sequelize.define(
   "Task",
@@ -40,9 +42,7 @@ const Task = sequelize.define(
     timestamps: true,
   }
 );
-Task.associations = () => {
-  Task.belongsTo(User, { foreignKey: "assigned_to" });
-  Task.belongsTo(Project, { foreignKey: "project_id" });
-};
+Task.belongsTo(User, { foreignKey: "assigned_to" });
+Task.belongsTo(Project, { foreignKey: "project_id" });
 
 export { Task };

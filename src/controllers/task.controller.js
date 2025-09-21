@@ -6,6 +6,8 @@ import taskService from "../services/task.service.js";
 import projectMemberService from "../services/projectMember.service.js";
 import projectService from "../services/project.service.js";
 import userService from "../services/user.service.js";
+import { User } from "../models/User.model.js";
+import { Project } from "../models/Project.model.js";
 
 const taskController = {
   createTask: async (req, res) => {
@@ -111,21 +113,8 @@ const taskController = {
 
   getProjectTasks: async (req, res) => {
     try {
-      const paramsData = { projectId: parseInt(req?.params?.projectId) };
-      const paramsValidation = validateJoiData(
-        paramsData,
-        taskSchema.projectTasksSchema,
-        true
-      );
-      if (paramsValidation.isError) {
-        return responseHelper.errorResponse(
-          res,
-          HTTP_RESPONSES.HTTP_BAD_REQUEST,
-          paramsValidation.errors
-        );
-      }
-
       const queryData = req?.query || {};
+      queryData.projectId = parseInt(req?.params?.projectId);
       const queryValidation = validateJoiData(
         queryData,
         taskSchema.projectTasksQuerySchema,
@@ -138,11 +127,11 @@ const taskController = {
           queryValidation.errors
         );
       }
-
+      const values = queryValidation.values;
       // Check if user is member of the project
       const membership = await projectMemberService.findOne({
-        project_id: paramsValidation.values.projectId,
-        user_id: req.user.id,
+        project_id: values.projectId,
+        user_id: req.user.userId,
       });
 
       if (!membership) {
@@ -153,16 +142,16 @@ const taskController = {
         );
       }
 
-      const page = queryValidation.values.page || 1;
-      const limit = queryValidation.values.limit || 10;
+      const page = values.page || 1;
+      const limit = values.per_page || 10;
       const offset = (page - 1) * limit;
 
-      const whereClause = { project_id: paramsValidation.values.projectId };
-      if (queryValidation.values.status) {
-        whereClause.status = queryValidation.values.status;
+      const whereClause = { project_id: values.projectId };
+      if (values.status) {
+        whereClause.status = values.status;
       }
-      if (queryValidation.values.assigned_to) {
-        whereClause.assigned_to = queryValidation.values.assigned_to;
+      if (values.assigned_to) {
+        whereClause.assigned_to = values.assigned_to;
       }
 
       const result = await taskService.findAndCountAll({
@@ -219,7 +208,7 @@ const taskController = {
       const limit = values.limit || 10;
       const offset = (page - 1) * limit;
 
-      const whereClause = { assigned_to: req.user.id };
+      const whereClause = { assigned_to: req.user.userId };
       if (values.status) {
         whereClause.status = values.status;
       }
@@ -227,9 +216,24 @@ const taskController = {
         whereClause.project_id = values.project_id;
       }
 
-       const { count, rows: tasks } = await taskService.findAndCountAll({
+      const { count, rows: tasks } = await taskService.findAndCountAll({
         where: whereClause,
-        attributes: ["id", "title", "description", "status", "assigned_to"],
+        attributes: [
+          "id",
+          "title",
+          "description",
+          "status",
+          "assigned_to",
+          "deadline",
+          "createdAt",
+          "updatedAt",
+        ],
+        include: [
+          {
+            model: Project,
+            attributes: ["id", "name"],
+          },
+        ],
         limit,
         offset,
         order: [["createdAt", "DESC"]],
@@ -239,8 +243,8 @@ const taskController = {
 
       const outputPayload = {
         metaInfo: {
-          totalItems: count ,
-          perPage : totalPages,
+          totalItems: count,
+          perPage: totalPages,
           currentPage: page,
           totalPage: limit,
         },
@@ -379,7 +383,7 @@ const taskController = {
       // Check if user is project admin or task assignee
       const adminMembership = await projectMemberService.findOne({
         project_id: task.project_id,
-        user_id: req.user.id,
+        user_id: req.user.userId,
         role: "Admin",
       });
 
@@ -452,7 +456,7 @@ const taskController = {
       // Check if user is member of the project
       const membership = await projectMemberService.findOne({
         project_id: task.project_id,
-        user_id: req.user.id,
+        user_id: req.user.userId,
       });
 
       if (!membership) {
@@ -503,21 +507,8 @@ const taskController = {
 
   updateTaskStatus: async (req, res) => {
     try {
-      const paramsData = { id: parseInt(req?.params?.id) };
-      const paramsValidation = validateJoiData(
-        paramsData,
-        taskSchema.taskIdSchema,
-        true
-      );
-      if (paramsValidation.isError) {
-        return responseHelper.errorResponse(
-          res,
-          HTTP_RESPONSES.HTTP_BAD_REQUEST,
-          paramsValidation.errors
-        );
-      }
-
       const bodyData = req?.body;
+      bodyData.task_id = parseInt(req?.params?.id);
       const bodyValidation = validateJoiData(
         bodyData,
         taskSchema.updateTaskStatusSchema,
@@ -530,8 +521,8 @@ const taskController = {
           bodyValidation.errors
         );
       }
-
-      const task = await taskService.findOneById(paramsValidation.values.id);
+      const values = bodyValidation.values;
+      const task = await taskService.findOneById(values.task_id);
       if (!task) {
         return responseHelper.errorResponse(
           res,
@@ -539,11 +530,10 @@ const taskController = {
           "Task not found"
         );
       }
-
       // Check if user is member of the project
       const membership = await projectMemberService.findOne({
         project_id: task.project_id,
-        user_id: req.user.id,
+        user_id: req.user.userId,
       });
 
       if (!membership) {
@@ -555,18 +545,14 @@ const taskController = {
       }
 
       await taskService.update(
-        { id: paramsValidation.values.id },
-        { status: bodyValidation.values.status }
-      );
-
-      const updatedTask = await taskService.findOneById(
-        paramsValidation.values.id
+        { id: values.task_id },
+        { status: values.status }
       );
 
       return responseHelper.successResponse(
         res,
         HTTP_RESPONSES.HTTP_OK,
-        { task: updatedTask },
+        {},
         "Task status updated successfully"
       );
     } catch (error) {

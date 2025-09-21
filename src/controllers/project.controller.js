@@ -7,6 +7,7 @@ import projectMemberService from "../services/projectMember.service.js";
 import userService from "../services/user.service.js";
 import { User } from "../models/User.model.js";
 import _ from "lodash";
+import { ProjectMember } from "../models/ProjectMember.model.js";
 
 const projectController = {
   createProject: async (req, res) => {
@@ -107,11 +108,7 @@ const projectController = {
           "User Infor not found. Login again"
         );
       }
-      if (userInfo.role === "admin") {
-        baseWhere = {};
-      } else {
-        baseWhere = { created_by: userInfo.userId };
-      }
+      // baseWhere.created_by = userInfo.userId;
 
       const { count, rows: projects } = await projectService.findAndCountAll({
         where: baseWhere,
@@ -121,6 +118,14 @@ const projectController = {
             model: User,
             as: "createdBy",
             attributes: ["id", "firstName", "lastName", "email"],
+          },
+          {
+            model: ProjectMember,
+            as: "projectMembers",
+            attributes: ["id", "project_id", "user_id", "role"],
+            where: {
+              user_id: userInfo.userId,
+            },
           },
         ],
         limit,
@@ -144,6 +149,58 @@ const projectController = {
         HTTP_RESPONSES.HTTP_OK,
         outputPayload,
         "Projects retrieved successfully"
+      );
+    } catch (error) {
+      return responseHelper.errorResponse(
+        res,
+        HTTP_RESPONSES.HTTP_INTERNAL_SERVER_ERROR,
+        error?.message
+      );
+    }
+  },
+  getUserProjectsDropdown: async (req, res) => {
+    try {
+      let baseWhere = {};
+      const userInfo = req.user;
+      if (_.isEmpty(userInfo)) {
+        return responseHelper.errorResponse(
+          res,
+          HTTP_RESPONSES.HTTP_UNAUTHORIZED,
+          "User Infor not found. Login again"
+        );
+      }
+      // baseWhere.created_by = userInfo.userId;
+
+      const result = await projectService.findAll({
+        where: baseWhere,
+        attributes: ["id", "name", "description", "created_by"],
+        include: [
+          {
+            model: User,
+            as: "createdBy",
+            attributes: ["id", "firstName", "lastName", "email"],
+          },
+          {
+            model: ProjectMember,
+            as: "projectMembers",
+            attributes: ["id", "project_id", "user_id", "role"],
+            where: {
+              user_id: userInfo.userId,
+            },
+          },
+        ],
+      });
+
+      const outputPayload = result.map((project) => ({
+        label: project?.name,
+        value: String(project?.id),
+      }));
+
+      return responseHelper.successResponse(
+        res,
+        HTTP_RESPONSES.HTTP_OK,
+        outputPayload,
+        "Projects dropdown list retrieved successfully"
       );
     } catch (error) {
       return responseHelper.errorResponse(
@@ -263,7 +320,7 @@ const projectController = {
 
       // Check if current user is admin of the project
       const currentUserMembers = await projectMemberService.findOne({
-        project_id: paramsValidation.values.id,
+        project_id: values.project_id,
         user_id: req.user.userId,
         role: "Admin",
       });
@@ -456,32 +513,52 @@ const projectController = {
 
       // Get all project members with user information
 
-      const members = await projectMemberService.findAndCountAll({
-        where: { project_id: values.project_id },
+      const members = await projectService.findOneWithOptions({
+        where: { id: values.project_id },
+        attributes: ["id", "name", "description", "created_by", "createdAt"],
         include: [
           {
-            model: User,
-            attributes: ["id", "firstName", "lastName", "email"],
+            model: ProjectMember,
+            as: "projectMembers",
+            attributes: ["id", "project_id", "user_id", "role"],
+            include: [
+              {
+                model: User,
+                as: "userInfo",
+                attributes: ["id", "firstName", "lastName", "email"],
+              },
+            ],
           },
         ],
-        limit,
-        offset,
       });
-      const totalPages = Math.ceil(count / limit);
+      if (req.query.dropdown === "true") {
+        // Deduplicate members by user_id
+        const uniqueMembers = new Map();
+        members.projectMembers.forEach((member) => {
+          if (!uniqueMembers.has(member.user_id)) {
+            uniqueMembers.set(member.user_id, member);
+          }
+        });
 
-      const outputPayload = {
-        metaInfo: {
-          totalItems: count,
-          perPage: totalPages,
-          currentPage: page,
-          totalPage: limit,
-        },
-        records: members,
-      };
+        const dropdownData = Array.from(uniqueMembers.values()).map(
+          (member) => ({
+            value: String(member.user_id),
+            label: `${member.userInfo.firstName} ${member.userInfo.lastName} (${member.userInfo.email})`,
+          })
+        );
+
+        return responseHelper.successResponse(
+          res,
+          HTTP_RESPONSES.HTTP_OK,
+          dropdownData,
+          "Project members retrieved successfully"
+        );
+      }
+
       return responseHelper.successResponse(
         res,
         HTTP_RESPONSES.HTTP_OK,
-        outputPayload,
+        members,
         "Project members retrieved successfully"
       );
     } catch (error) {
