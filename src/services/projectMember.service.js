@@ -1,5 +1,5 @@
 import _ from 'lodash';
-import { ProjectMember } from '../models/ProjectMember.js';
+import { ProjectMember } from '../models/ProjectMember.model.js';
 
 const projectMemberService = {
     findAll: async (conditions) => {

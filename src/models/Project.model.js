@@ -1,5 +1,6 @@
 import { DataTypes } from "sequelize";
 import { sequelize } from "../config/database.js";
+import { User } from "./User.model.js";
 
 const Project = sequelize.define(
   "Project",
@@ -20,10 +21,6 @@ const Project = sequelize.define(
     created_by: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      references: {
-        model: "users",
-        key: "id",
-      },
     },
   },
   {
@@ -31,5 +28,9 @@ const Project = sequelize.define(
     timestamps: true,
   }
 );
+Project.belongsTo(User, {
+  foreignKey: "created_by",
+  as: "createdBy",
+});
 
 export { Project };

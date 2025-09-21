@@ -2,16 +2,21 @@ import responseHelper from "../helpers/responseHelper.js";
 import { HTTP_RESPONSES } from "../constants/http-response-messages.constants.js";
 import validateJoiData from "../helpers/validationHelper.js";
 import projectSchema from "../schema/project.schema.js";
-import projectService from "../services/projectService.js";
-import projectMemberService from "../services/projectMemberService.js";
+import projectService from "../services/project.service.js";
+import projectMemberService from "../services/projectMember.service.js";
 import userService from "../services/user.service.js";
-import { User } from "../models/User.js";
+import { User } from "../models/User.model.js";
+import _ from "lodash";
 
 const projectController = {
   createProject: async (req, res) => {
     try {
       const data = req?.body;
-      const validation = validateJoiData(data, projectSchema.createProjectSchema, true);
+      const validation = validateJoiData(
+        data,
+        projectSchema.createProjectSchema,
+        true
+      );
       if (validation.isError) {
         return responseHelper.errorResponse(
           res,
@@ -23,18 +28,22 @@ const projectController = {
 
       const projectData = {
         ...values,
-        created_by: req.user.id
+        created_by: req.user.userId,
       };
       const project = await projectService.create(projectData);
-
+      const projectMemberPayload = {
+        project_id: project.id,
+        user_id: req.user.userId,
+        role: "Admin",
+      };
+      await projectMemberService.create(projectMemberPayload);
       return responseHelper.successResponse(
         res,
         HTTP_RESPONSES.HTTP_CREATED,
-        { project },
+        project,
         "Project created successfully"
       );
     } catch (error) {
-      console.error("Create project error:", error);
       return responseHelper.errorResponse(
         res,
         HTTP_RESPONSES.HTTP_INTERNAL_SERVER_ERROR,
@@ -45,8 +54,12 @@ const projectController = {
 
   getProject: async (req, res) => {
     try {
-      const data = { id: parseInt(req?.params?.id) };
-      const validation = validateJoiData(data, projectSchema.projectIdSchema, true);
+      const data = { project_id: parseInt(req?.params?.id) };
+      const validation = validateJoiData(
+        data,
+        projectSchema.projectIdSchema,
+        true
+      );
       if (validation.isError) {
         return responseHelper.errorResponse(
           res,
@@ -56,7 +69,7 @@ const projectController = {
       }
       const values = validation.values;
 
-      const project = await projectService.findOneById(values.id);
+      const project = await projectService.findOneById(values.project_id);
       if (!project) {
         return responseHelper.errorResponse(
           res,
@@ -72,7 +85,6 @@ const projectController = {
         "Project retrieved successfully"
       );
     } catch (error) {
-      console.error("Get project error:", error);
       return responseHelper.errorResponse(
         res,
         HTTP_RESPONSES.HTTP_INTERNAL_SERVER_ERROR,
@@ -83,18 +95,57 @@ const projectController = {
 
   getUserProjects: async (req, res) => {
     try {
-      const projects = await projectService.findAll({
-        where: { created_by: req.user.id }
+      const page = parseInt(req.query?.page) || 1;
+      const limit = parseInt(req.query?.per_page) || 10;
+      const offset = (page - 1) * limit;
+      let baseWhere = {};
+      const userInfo = req.user;
+      if (_.isEmpty(userInfo)) {
+        return responseHelper.errorResponse(
+          res,
+          HTTP_RESPONSES.HTTP_UNAUTHORIZED,
+          "User Infor not found. Login again"
+        );
+      }
+      if (userInfo.role === "admin") {
+        baseWhere = {};
+      } else {
+        baseWhere = { created_by: userInfo.userId };
+      }
+
+      const { count, rows: projects } = await projectService.findAndCountAll({
+        where: baseWhere,
+        attributes: ["id", "name", "description", "created_by"],
+        include: [
+          {
+            model: User,
+            as: "createdBy",
+            attributes: ["id", "firstName", "lastName", "email"],
+          },
+        ],
+        limit,
+        offset,
       });
+
+      // Prepare pagination metadata
+      const totalPages = Math.ceil(count / limit);
+      const outputPayload = {
+        metaInfo: {
+          totalItems: count,
+          perPage: totalPages,
+          currentPage: page,
+          totalPage: limit,
+        },
+        records: projects,
+      };
 
       return responseHelper.successResponse(
         res,
         HTTP_RESPONSES.HTTP_OK,
-        { projects },
+        outputPayload,
         "Projects retrieved successfully"
       );
     } catch (error) {
-      console.error("Get user projects error:", error);
       return responseHelper.errorResponse(
         res,
         HTTP_RESPONSES.HTTP_INTERNAL_SERVER_ERROR,
@@ -105,18 +156,13 @@ const projectController = {
 
   updateProject: async (req, res) => {
     try {
-      const paramsData = { id: parseInt(req?.params?.id) };
-      const paramsValidation = validateJoiData(paramsData, projectSchema.projectIdSchema, true);
-      if (paramsValidation.isError) {
-        return responseHelper.errorResponse(
-          res,
-          HTTP_RESPONSES.HTTP_BAD_REQUEST,
-          paramsValidation.errors
-        );
-      }
-
       const bodyData = req?.body;
-      const bodyValidation = validateJoiData(bodyData, projectSchema.updateProjectSchema, false);
+      bodyData.project_id = parseInt(req?.params?.id);
+      const bodyValidation = validateJoiData(
+        bodyData,
+        projectSchema.updateProjectSchema,
+        false
+      );
       if (bodyValidation.isError) {
         return responseHelper.errorResponse(
           res,
@@ -124,12 +170,20 @@ const projectController = {
           bodyValidation.errors
         );
       }
+      const values = bodyValidation.values;
+      const project = await projectService.findOneById(values.project_id);
+      if (!project) {
+        return responseHelper.errorResponse(
+          res,
+          HTTP_RESPONSES.HTTP_NOT_FOUND,
+          "Project not found"
+        );
+      }
 
       await projectService.update(
-        { id: paramsValidation.values.id },
+        { id: values.project_id },
         bodyValidation.values
       );
-      const project = await projectService.findOneById(paramsValidation.values.id);
 
       return responseHelper.successResponse(
         res,
@@ -138,28 +192,10 @@ const projectController = {
         "Project updated successfully"
       );
     } catch (error) {
-      console.error("Update project error:", error);
-
-      if (error.message === "Project not found") {
-        return responseHelper.errorResponse(
-          res,
-          HTTP_RESPONSES.HTTP_NOT_FOUND,
-          error.message
-        );
-      }
-
-      if (error.message === "Only project admins can update projects") {
-        return responseHelper.errorResponse(
-          res,
-          HTTP_RESPONSES.HTTP_FORBIDDEN,
-          error.message
-        );
-      }
-
       return responseHelper.errorResponse(
         res,
-        HTTP_RESPONSES.HTTP_INTERNAL_SERVER_ERROR,
-        error?.message
+        HTTP_RESPONSES.HTTP_NOT_FOUND,
+        error.message
       );
     }
   },
@@ -167,7 +203,11 @@ const projectController = {
   deleteProject: async (req, res) => {
     try {
       const data = { id: parseInt(req?.params?.id) };
-      const validation = validateJoiData(data, projectSchema.projectIdSchema, true);
+      const validation = validateJoiData(
+        data,
+        projectSchema.projectIdSchema,
+        true
+      );
       if (validation.isError) {
         return responseHelper.errorResponse(
           res,
@@ -186,24 +226,6 @@ const projectController = {
         "Project deleted successfully"
       );
     } catch (error) {
-      console.error("Delete project error:", error);
-
-      if (error.message === "Project not found") {
-        return responseHelper.errorResponse(
-          res,
-          HTTP_RESPONSES.HTTP_NOT_FOUND,
-          error.message
-        );
-      }
-
-      if (error.message === "Only project admins can delete projects") {
-        return responseHelper.errorResponse(
-          res,
-          HTTP_RESPONSES.HTTP_FORBIDDEN,
-          error.message
-        );
-      }
-
       return responseHelper.errorResponse(
         res,
         HTTP_RESPONSES.HTTP_INTERNAL_SERVER_ERROR,
@@ -214,18 +236,13 @@ const projectController = {
 
   inviteUser: async (req, res) => {
     try {
-      const paramsData = { id: parseInt(req?.params?.id) };
-      const paramsValidation = validateJoiData(paramsData, projectSchema.projectIdSchema, true);
-      if (paramsValidation.isError) {
-        return responseHelper.errorResponse(
-          res,
-          HTTP_RESPONSES.HTTP_BAD_REQUEST,
-          paramsValidation.errors
-        );
-      }
-
       const bodyData = req?.body;
-      const bodyValidation = validateJoiData(bodyData, projectSchema.inviteUserSchema, true);
+      bodyData.project_id = parseInt(req?.params?.id);
+      const bodyValidation = validateJoiData(
+        bodyData,
+        projectSchema.inviteUserSchema,
+        true
+      );
       if (bodyValidation.isError) {
         return responseHelper.errorResponse(
           res,
@@ -233,9 +250,9 @@ const projectController = {
           bodyValidation.errors
         );
       }
-
+      const values = bodyValidation.values;
       // Check if project exists
-      const project = await projectService.findOneById(paramsValidation.values.id);
+      const project = await projectService.findOneById(values.project_id);
       if (!project) {
         return responseHelper.errorResponse(
           res,
@@ -245,13 +262,13 @@ const projectController = {
       }
 
       // Check if current user is admin of the project
-      const currentUserMembership = await projectMemberService.findOne({
+      const currentUserMembers = await projectMemberService.findOne({
         project_id: paramsValidation.values.id,
-        user_id: req.user.id,
-        role: "Admin"
+        user_id: req.user.userId,
+        role: "Admin",
       });
 
-      if (!currentUserMembership) {
+      if (!currentUserMembers) {
         return responseHelper.errorResponse(
           res,
           HTTP_RESPONSES.HTTP_FORBIDDEN,
@@ -260,7 +277,9 @@ const projectController = {
       }
 
       // Check if user to invite exists
-      const userToInvite = await userService.findOne({ email: bodyValidation.values.email });
+      const userToInvite = await userService.findOne({
+        id: values.user_id,
+      });
       if (!userToInvite) {
         return responseHelper.errorResponse(
           res,
@@ -270,10 +289,14 @@ const projectController = {
       }
 
       // Check if user is already a member
-      const existingMembership = await projectMemberService.findOne({
-        project_id: paramsValidation.values.id,
-        user_id: userToInvite.id
-      });
+      const membershipData = {
+        project_id: values.project_id,
+        user_id: userToInvite.id,
+        role: values.role,
+      };
+      const existingMembership = await projectMemberService.findOne(
+        membershipData
+      );
 
       if (existingMembership) {
         return responseHelper.errorResponse(
@@ -284,11 +307,6 @@ const projectController = {
       }
 
       // Create membership
-      const membershipData = {
-        project_id: paramsValidation.values.id,
-        user_id: userToInvite.id,
-        role: bodyValidation.values.role || "Member"
-      };
 
       const membership = await projectMemberService.create(membershipData);
 
@@ -309,13 +327,16 @@ const projectController = {
 
   removeUser: async (req, res) => {
     try {
-      const paramsData = { 
-        id: parseInt(req?.params?.id),
-        userId: parseInt(req?.params?.userId)
+      const paramsData = {
+        project_id: parseInt(req?.params?.id),
+        userId: parseInt(req?.params?.userId),
       };
-      const projectValidation = validateJoiData({ id: paramsData.id }, projectSchema.projectIdSchema, true);
-      const userValidation = validateJoiData({ userId: paramsData.userId }, projectSchema.removeUserSchema, true);
-      
+      const projectValidation = validateJoiData(
+        paramsData,
+        projectSchema.removeUserSchema,
+        true
+      );
+
       if (projectValidation.isError) {
         return responseHelper.errorResponse(
           res,
@@ -323,17 +344,10 @@ const projectController = {
           projectValidation.errors
         );
       }
-
-      if (userValidation.isError) {
-        return responseHelper.errorResponse(
-          res,
-          HTTP_RESPONSES.HTTP_BAD_REQUEST,
-          userValidation.errors
-        );
-      }
+      const values = projectValidation.values;
 
       // Check if project exists
-      const project = await projectService.findOneById(projectValidation.values.id);
+      const project = await projectService.findOneById(values.project_id);
       if (!project) {
         return responseHelper.errorResponse(
           res,
@@ -344,9 +358,9 @@ const projectController = {
 
       // Check if current user is admin of the project
       const currentUserMembership = await projectMemberService.findOne({
-        project_id: projectValidation.values.id,
-        user_id: req.user.id,
-        role: "Admin"
+        project_id: values.project_id,
+        user_id: req.user.userId,
+        role: "Admin",
       });
 
       if (!currentUserMembership) {
@@ -359,8 +373,8 @@ const projectController = {
 
       // Check if user to remove is a member
       const membershipToRemove = await projectMemberService.findOne({
-        project_id: projectValidation.values.id,
-        user_id: userValidation.values.userId
+        project_id: values.project_id,
+        user_id: values.user_id,
       });
 
       if (!membershipToRemove) {
@@ -372,7 +386,10 @@ const projectController = {
       }
 
       // Prevent removing project creator
-      if (membershipToRemove.role === "Admin" && project.created_by === userValidation.values.userId) {
+      if (
+        membershipToRemove.role === "Admin" &&
+        project.created_by === values.user_id
+      ) {
         return responseHelper.errorResponse(
           res,
           HTTP_RESPONSES.HTTP_FORBIDDEN,
@@ -383,7 +400,7 @@ const projectController = {
       // Remove membership
       await projectMemberService.destroy({
         project_id: projectValidation.values.id,
-        user_id: userValidation.values.userId
+        user_id: userValidation.values.userId,
       });
 
       return responseHelper.successResponse(
@@ -403,8 +420,17 @@ const projectController = {
 
   getProjectMembers: async (req, res) => {
     try {
-      const data = { id: parseInt(req?.params?.id) };
-      const validation = validateJoiData(data, projectSchema.projectIdSchema, true);
+      const data = { project_id: parseInt(req?.params?.id) };
+
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.per_page) || 10;
+      const offset = (page - 1) * limit;
+
+      const validation = validateJoiData(
+        data,
+        projectSchema.projectIdSchema,
+        true
+      );
       if (validation.isError) {
         return responseHelper.errorResponse(
           res,
@@ -416,8 +442,8 @@ const projectController = {
 
       // Check if current user is a member of the project
       const currentUserMembership = await projectMemberService.findOne({
-        project_id: values.id,
-        user_id: req.user.id
+        project_id: values.project_id,
+        user_id: req.user.userId,
       });
 
       if (!currentUserMembership) {
@@ -429,20 +455,33 @@ const projectController = {
       }
 
       // Get all project members with user information
-      const members = await projectMemberService.findAll({
-        where: { project_id: values.id },
+
+      const members = await projectMemberService.findAndCountAll({
+        where: { project_id: values.project_id },
         include: [
           {
             model: User,
-            attributes: ["id", "firstName", "lastName", "email"]
-          }
-        ]
+            attributes: ["id", "firstName", "lastName", "email"],
+          },
+        ],
+        limit,
+        offset,
       });
+      const totalPages = Math.ceil(count / limit);
 
+      const outputPayload = {
+        metaInfo: {
+          totalItems: count,
+          perPage: totalPages,
+          currentPage: page,
+          totalPage: limit,
+        },
+        records: members,
+      };
       return responseHelper.successResponse(
         res,
         HTTP_RESPONSES.HTTP_OK,
-        { members },
+        outputPayload,
         "Project members retrieved successfully"
       );
     } catch (error) {

@@ -12,10 +12,6 @@ const Task = sequelize.define(
     project_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      references: {
-        model: "projects",
-        key: "id",
-      },
     },
     title: {
       type: DataTypes.STRING,
@@ -33,10 +29,6 @@ const Task = sequelize.define(
     assigned_to: {
       type: DataTypes.INTEGER,
       allowNull: true,
-      references: {
-        model: "users",
-        key: "id",
-      },
     },
     deadline: {
       type: DataTypes.DATE,
@@ -48,5 +40,9 @@ const Task = sequelize.define(
     timestamps: true,
   }
 );
+Task.associations = () => {
+  Task.belongsTo(User, { foreignKey: "assigned_to" });
+  Task.belongsTo(Project, { foreignKey: "project_id" });
+};
 
 export { Task };

@@ -1,5 +1,5 @@
 import _ from 'lodash';
-import { Task } from '../models/Task.js';
+import { Task } from '../models/Task.model.js';
 
 const taskService = {
     findAll: async (conditions) => {

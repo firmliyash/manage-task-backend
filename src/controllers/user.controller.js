@@ -41,6 +41,31 @@ const userController = {
       );
     }
   },
+  getDropdownList: async (req, res) => {
+    try {
+      const users = await userService.findAll({
+        where:{ role: "user" },
+        attributes: ["id", "firstName", "lastName", "role", "email"],
+      });
+
+      const dropdownList = users.map((user) => ({
+        label: `${user?.firstName} ${user?.lastName} - (${user?.email})`,
+        value: user.id,
+      }))
+      return responseHelper.successResponse(
+        res,
+        HTTP_RESPONSES.HTTP_OK,
+        dropdownList,
+        "User list retrieved successfully"
+      );
+    } catch (error) {
+      return responseHelper.errorResponse(
+        res,
+        HTTP_RESPONSES.HTTP_INTERNAL_SERVER_ERROR,
+        error.message
+      );
+    }
+  },
 };
 
 export default userController;

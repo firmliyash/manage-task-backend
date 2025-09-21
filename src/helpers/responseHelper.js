@@ -11,7 +11,7 @@ const responseHelper = {
     return res
       .status(resStatus.statusCode)
       .json({
-        status: resStatus.statusMessage,
+        status: resStatus.statusCode,
         message: message ? message : "Success",
         data : data || {},
       });

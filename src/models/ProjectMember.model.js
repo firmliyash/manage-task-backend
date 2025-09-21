@@ -12,18 +12,10 @@ const ProjectMember = sequelize.define(
     project_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      references: {
-        model: "projects",
-        key: "id",
-      },
     },
     user_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      references: {
-        model: "users",
-        key: "id",
-      },
     },
     role: {
       type: DataTypes.ENUM("Admin", "Member"),
@@ -36,5 +28,9 @@ const ProjectMember = sequelize.define(
     timestamps: true,
   }
 );
+ProjectMember.associations = () => {
+  ProjectMember.belongsTo(User, { foreignKey: "user_id" });
+  ProjectMember.belongsTo(Project, { foreignKey: "project_id" });
+};
 
 export { ProjectMember };

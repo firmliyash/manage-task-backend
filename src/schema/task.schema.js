@@ -45,7 +45,7 @@ const taskSchema = {
     status: Joi.string().valid('Todo', 'In-Progress', 'Done').optional(),
     project_id: Joi.number().integer().positive().optional(),
     page: Joi.number().integer().min(1).optional().default(1),
-    limit: Joi.number().integer().min(1).max(100).optional().default(10),
+    per_page: Joi.number().integer().min(1).max(100).optional().default(10),
   }),
 };
 
