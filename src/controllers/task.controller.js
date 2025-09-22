@@ -85,7 +85,7 @@ const taskController = {
       // Check if user is member of the project
       const membership = await projectMemberService.findOne({
         project_id: task.project_id,
-        user_id: req.user.id,
+        user_id: req.user.userId,
       });
 
       if (!membership) {
@@ -307,7 +307,7 @@ const taskController = {
       // Check if user is member of the project
       const membership = await projectMemberService.findOne({
         project_id: task.project_id,
-        user_id: req.user.id,
+        user_id: req.user.userId,
       });
 
       if (!membership) {
@@ -387,7 +387,7 @@ const taskController = {
         role: "Admin",
       });
 
-      const isTaskAssignee = task.assigned_to === req.user.id;
+      const isTaskAssignee = task.assigned_to === req.user.userId;
 
       if (!adminMembership && !isTaskAssignee) {
         return responseHelper.errorResponse(
